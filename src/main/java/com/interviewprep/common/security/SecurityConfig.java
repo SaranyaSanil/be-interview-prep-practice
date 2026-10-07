@@ -8,7 +8,6 @@ import com.nimbusds.jose.jwk.source.ImmutableSecret;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -26,8 +25,12 @@ import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.oauth2.jwt.NimbusJwtEncoder;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
 import org.springframework.security.oauth2.server.resource.authentication.JwtGrantedAuthoritiesConverter;
+import org.springframework.security.oauth2.server.resource.web.BearerTokenResolver;
+import org.springframework.security.oauth2.server.resource.web.DefaultBearerTokenResolver;
 import org.springframework.security.web.SecurityFilterChain;
-import org.springframework.security.web.util.matcher.RegexRequestMatcher;
+import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
+import org.springframework.security.web.util.matcher.OrRequestMatcher;
+import org.springframework.security.web.util.matcher.RequestMatcher;
 
 /**
  * Stateless JWT security for the whole application.
@@ -43,6 +46,17 @@ public class SecurityConfig {
     /** JWT claim that carries the user's roles, e.g. {@code ["ADMIN"]}. */
     public static final String ROLES_CLAIM = "roles";
 
+    /**
+     * Endpoints anyone may call. Path-only patterns, so query strings (e.g. {@code /abc1234?utm_source=x}) and any
+     * HTTP method still match. The short-code pattern mirrors the redirect route in {@code ShortUrlController}.
+     */
+    private static final RequestMatcher PUBLIC_ENDPOINTS = new OrRequestMatcher(
+            path("/api/auth/**"),
+            path("/error"),
+            path("/api/tasks/**"),
+            path("/api/urls/**"),
+            path("/{shortCode:[A-Za-z0-9]{1,8}}"));
+
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http, ObjectMapper objectMapper) throws Exception {
         JsonSecurityErrorHandler errorHandler = new JsonSecurityErrorHandler(objectMapper);
@@ -54,13 +68,13 @@ public class SecurityConfig {
                 .formLogin(AbstractHttpConfigurer::disable)
                 .logout(AbstractHttpConfigurer::disable)
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/api/auth/**", "/error").permitAll()
-                        .requestMatchers("/api/tasks/**", "/api/urls/**").permitAll()
-                        .requestMatchers(RegexRequestMatcher.regexMatcher(HttpMethod.GET, "^/[A-Za-z0-9]{1,8}$"))
-                        .permitAll()
-                        .requestMatchers(HttpMethod.GET, "/api/users").hasRole("ADMIN")
+                        .requestMatchers(PUBLIC_ENDPOINTS).permitAll()
+                        // No HTTP method on purpose: a GET-only rule would let HEAD /api/users fall through to
+                        // authenticated() and run the GET handler for a USER.
+                        .requestMatchers(path("/api/users")).hasRole("ADMIN")
                         .anyRequest().authenticated())
                 .oauth2ResourceServer(oauth2 -> oauth2
+                        .bearerTokenResolver(ignoreTokensOnPublicEndpoints())
                         .jwt(jwt -> jwt.jwtAuthenticationConverter(jwtAuthenticationConverter()))
                         .authenticationEntryPoint(errorHandler)
                         .accessDeniedHandler(errorHandler))
@@ -99,6 +113,19 @@ public class SecurityConfig {
         timestampValidator.setClock(clock);
         decoder.setJwtValidator(new DelegatingOAuth2TokenValidator<>(timestampValidator));
         return decoder;
+    }
+
+    /**
+     * By default an expired token in the Authorization header makes even public endpoints fail with 401, so a client
+     * that attaches its token to every request could not log in again. Public endpoints therefore ignore the header.
+     */
+    private static BearerTokenResolver ignoreTokensOnPublicEndpoints() {
+        DefaultBearerTokenResolver defaultResolver = new DefaultBearerTokenResolver();
+        return request -> PUBLIC_ENDPOINTS.matches(request) ? null : defaultResolver.resolve(request);
+    }
+
+    private static RequestMatcher path(String pattern) {
+        return PathPatternRequestMatcher.withDefaults().matcher(pattern);
     }
 
     /** Maps the {@code roles} claim to Spring authorities ({@code ADMIN} → {@code ROLE_ADMIN}) for hasRole(). */

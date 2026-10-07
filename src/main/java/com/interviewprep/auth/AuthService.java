@@ -18,6 +18,7 @@ import com.interviewprep.user.dto.UserResponse;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.BadCredentialsException;
+import org.springframework.security.authentication.InternalAuthenticationServiceException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -79,6 +80,8 @@ public class AuthService {
         String email = UserService.normalizeEmail(request.email());
         try {
             authenticationManager.authenticate(UsernamePasswordAuthenticationToken.unauthenticated(email, request.password()));
+        } catch (InternalAuthenticationServiceException ex) {
+            throw ex; // infrastructure failure, e.g. database down: surfaces as a logged 500, not a misleading 401
         } catch (AuthenticationException ex) {
             throw new BadCredentialsException(INVALID_CREDENTIALS);
         }

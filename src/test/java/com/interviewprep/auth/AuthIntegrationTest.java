@@ -3,6 +3,7 @@ package com.interviewprep.auth;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.hasSize;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.head;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -93,6 +94,16 @@ class AuthIntegrationTest {
                 .andExpect(jsonPath("$.status").value(403))
                 .andExpect(jsonPath("$.title").value("Forbidden"))
                 .andExpect(jsonPath("$.instance").value("/api/users"));
+    }
+
+    @Test
+    void userCannotReachAdminEndpointWithOtherHttpMethods() throws Exception {
+        String userToken = registerAndLogin(USER_EMAIL);
+
+        mockMvc.perform(head("/api/users").header("Authorization", "Bearer " + userToken))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(post("/api/users").header("Authorization", "Bearer " + userToken))
+                .andExpect(status().isForbidden());
     }
 
     @Test
@@ -260,6 +271,22 @@ class AuthIntegrationTest {
     @Test
     void earlierQuestionEndpointsRemainPublic() throws Exception {
         mockMvc.perform(get("/api/tasks")).andExpect(status().isOk());
+        // short links stay public with tracking parameters (unknown code -> 404, not 401)
+        mockMvc.perform(get("/abc1234").queryParam("utm_source", "newsletter")).andExpect(status().isNotFound());
+    }
+
+    @Test
+    void staleTokenDoesNotBlockLoginOrPublicEndpoints() throws Exception {
+        register(USER_EMAIL);
+        String expired = signedToken(NOW.minus(20, ChronoUnit.MINUTES), NOW.minus(5, ChronoUnit.MINUTES));
+
+        mockMvc.perform(post("/api/auth/login")
+                        .header("Authorization", "Bearer " + expired)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(credentials(USER_EMAIL, PASSWORD)))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/api/tasks").header("Authorization", "Bearer " + expired))
+                .andExpect(status().isOk());
     }
 
     // --- helpers ----------------------------------------------------------------------------------------------
