@@ -81,7 +81,7 @@ For each question:
 | Question | Feature | Branch | Status      |
 |----------|---------|--------|-------------|
 | Q1       | [Task Manager API](#q1--task-manager-api) | `feature/q1-task-api` | Implemented |
-| Q2       | TBD     | TBD    | Not started |
+| Q2       | [URL Shortener](#q2--url-shortener) | `feature/q2-url-shortener` | Implemented |
 | Q3       | TBD     | TBD    | Not started |
 | Q4       | TBD     | TBD    | Not started |
 | Q5       | TBD     | TBD    | Not started |
@@ -152,3 +152,72 @@ Design decisions and trade-offs:
   a `Pageable`.
 - **`PUT` rather than `PATCH`.** Full replacement is simpler to validate and explain. `PATCH` could be added if
   partial updates are needed.
+
+## Q2 — URL Shortener
+
+Package `com.interviewprep.shorturl`:
+
+| Method | Path                       | Description                          | Success              | Errors   |
+|--------|----------------------------|--------------------------------------|----------------------|----------|
+| `POST` | `/api/urls`                | Shorten a URL                        | 201 + `Location`     | 400      |
+| `GET`  | `/{shortCode}`             | Redirect to the original URL, counting the visit | 302 + `Location` | 404, 410 |
+| `GET`  | `/api/urls/{shortCode}/stats` | Original URL, visit count and created time | 200            | 404      |
+
+Request (`expiryDate` is optional):
+
+```json
+{ "url": "https://example.com/some/very/long/path", "expiryDate": "2026-12-31" }
+```
+
+Response:
+
+```json
+{ "shortCode": "aZ3k9Qx", "shortUrl": "http://localhost:8080/aZ3k9Qx",
+  "originalUrl": "https://example.com/some/very/long/path", "expiryDate": "2026-12-31",
+  "createdAt": "2026-10-07T06:30:00Z" }
+```
+
+Stats response:
+
+```json
+{ "originalUrl": "https://example.com/some/very/long/path", "visitCount": 42, "createdAt": "2026-10-07T06:30:00Z" }
+```
+
+Design decisions and trade-offs:
+
+- **Short codes are 7 random Base62 characters** (`A–Z a–z 0–9`) from `SecureRandom`.
+  - They are URL-safe without encoding and within the 8-character limit.
+  - There are about 3.5 trillion combinations.
+  - Random codes can't be guessed in sequence, unlike codes built from the database id.
+- **Codes are unique** because the `short_code` column has a unique constraint. That is the real guarantee. The service
+  also checks for an existing code before saving and retries up to 5 times. After 5 collisions, which is practically
+  impossible, the request fails with a 500.
+- **Shortening the same URL twice creates a new code each time.** Each link then has its own expiry date and visit
+  stats, which is useful when one URL is shared in different places. It also avoids two problems with reusing a code:
+  deciding which link wins when expiry dates differ, and two identical requests racing each other. The cost is some
+  duplicate rows. Reusing the code would need a unique index on the long URL and rules for differing expiry dates.
+- **Visit counts stay accurate under concurrency** because each visit runs a single atomic
+  `UPDATE ... SET visit_count = visit_count + 1`. The database locks the row for that update.
+  - A read, add one, save approach loses visits. In the concurrency test it counted only 77 of 500.
+  - Optimistic locking (`@Version`) would fail and retry constantly on a popular link.
+  - A pessimistic lock makes every request wait in line.
+  - An in-memory counter is lost on restart and doesn't work across several servers.
+- **Expiry is inclusive.** A link with `expiryDate` 2026-12-31 works until the end of that day, based on the
+  application's `Clock`.
+  - A past expiry date is rejected with 400.
+  - Every redirect checks expiry.
+  - Visits to an expired link aren't counted.
+  - Stats stay available after expiry, because they describe past activity.
+- **Status codes:** an unknown code returns 404. An expired code returns **410 Gone**, which tells the client the
+  link existed but is permanently unavailable. That is clearer than a 404.
+- **Redirects use 302, not 301.** Browsers cache 301s and skip the server, so repeat visits wouldn't be counted.
+  `Cache-Control: no-store` stops caches in between from storing the redirect.
+- **The redirect route only matches `/{code:[A-Za-z0-9]{1,8}}`.** It can't clash with `/api/**`, and invalid
+  codes return 404 without reaching the service.
+- **URL validation:**
+  - Only absolute `http`/`https` URLs of at most 2048 characters, with no whitespace, are accepted.
+  - This rejects `javascript:`, `data:` and `ftp:` URLs, so the redirect can't be used for script injection.
+  - It also rejects line breaks, so a URL can't inject extra HTTP headers.
+- **The short URL is built from the incoming request's base address.** Behind a reverse proxy, Spring's forwarded-header
+  support (`server.forward-headers-strategy`) or a configured base URL would be needed.
+- **Not included:** code deletion, custom aliases, per-visit analytics and rate limiting.
