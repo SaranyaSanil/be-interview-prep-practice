@@ -1,7 +1,10 @@
 package com.interviewprep.common.exception;
 
+import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.not;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -15,6 +18,7 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
@@ -61,13 +65,43 @@ class GlobalExceptionHandlerTest {
     }
 
     @Test
+    void invalidEnumValueInBodyReturns400WithFieldErrorAndAllowedValues() throws Exception {
+        mockMvc.perform(post("/test/validate")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\": \"ok\", \"color\": \"PURPLE\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("color"))
+                .andExpect(jsonPath("$.errors[0].message").value("must be one of [RED, GREEN]"));
+    }
+
+    @Test
+    void invalidQueryParameterReturns400WithFieldError() throws Exception {
+        mockMvc.perform(get("/test/filter").param("color", "PURPLE"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("color"))
+                .andExpect(jsonPath("$.errors[0].message").value("must be one of [RED, GREEN]"));
+    }
+
+    @Test
+    void fieldValidationExceptionReturns400WithFieldError() throws Exception {
+        mockMvc.perform(get("/test/field-rule"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.title").value("Validation failed"))
+                .andExpect(jsonPath("$.errors[0].field").value("dueDate"))
+                .andExpect(jsonPath("$.errors[0].message").value("must not be in the past"));
+    }
+
+    @Test
     void unexpectedErrorReturns500WithoutLeakingInternals() throws Exception {
         mockMvc.perform(get("/test/boom"))
                 .andExpect(status().isInternalServerError())
-                .andExpect(jsonPath("$.detail").value("An unexpected error occurred"));
+                .andExpect(jsonPath("$.detail").value("An unexpected error occurred"))
+                .andExpect(content().string(not(containsString("hunter2"))));
     }
 
-    record TestRequest(@NotBlank String name) {
+    enum Color { RED, GREEN }
+
+    record TestRequest(@NotBlank String name, Color color) {
     }
 
     @RestController
@@ -80,6 +114,15 @@ class GlobalExceptionHandlerTest {
 
         @PostMapping("/test/validate")
         void validate(@Valid @RequestBody TestRequest request) {
+        }
+
+        @GetMapping("/test/filter")
+        void filter(@RequestParam Color color) {
+        }
+
+        @GetMapping("/test/field-rule")
+        void fieldRule() {
+            throw new FieldValidationException("dueDate", "must not be in the past");
         }
 
         @GetMapping("/test/boom")

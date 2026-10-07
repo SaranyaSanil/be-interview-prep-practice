@@ -80,7 +80,7 @@ For each question:
 
 | Question | Feature | Branch | Status      |
 |----------|---------|--------|-------------|
-| Q1       | TBD     | TBD    | Not started |
+| Q1       | [Task Manager API](#q1--task-manager-api) | `feature/q1-task-api` | Implemented |
 | Q2       | TBD     | TBD    | Not started |
 | Q3       | TBD     | TBD    | Not started |
 | Q4       | TBD     | TBD    | Not started |
@@ -93,3 +93,62 @@ For each question:
   example requests and responses, the tests added, and the senior-review summary.
 - `./mvnw clean verify` must pass before you request review.
 - Keep PRs focused, with no unrelated refactoring.
+
+## Q1 — Task Manager API
+
+Package `com.interviewprep.task`, with endpoints under `/api/tasks`:
+
+| Method   | Path              | Description                                | Success | Errors   |
+|----------|-------------------|--------------------------------------------|---------|----------|
+| `POST`   | `/api/tasks`      | Create a task                              | 201 + `Location` | 400 |
+| `GET`    | `/api/tasks`      | List tasks, with optional `?status=` filter | 200     | 400      |
+| `GET`    | `/api/tasks/{id}` | Get one task                               | 200     | 404      |
+| `PUT`    | `/api/tasks/{id}` | Replace a task's editable fields           | 200     | 400, 404 |
+| `DELETE` | `/api/tasks/{id}` | Delete a task                              | 204     | 404      |
+
+Create request (`description` and `dueDate` are optional). New tasks always start as `TODO`:
+
+```json
+{ "title": "Prepare demo", "description": "Slides + live run", "dueDate": "2026-12-01" }
+```
+
+Update request (`PUT`, full replacement of the editable fields):
+
+```json
+{ "title": "Prepare demo", "description": "Slides + live run", "status": "IN_PROGRESS", "dueDate": "2026-12-01" }
+```
+
+Response:
+
+```json
+{ "id": 1, "title": "Prepare demo", "description": "Slides + live run", "status": "TODO",
+  "dueDate": "2026-12-01", "createdDate": "2026-10-07" }
+```
+
+Rules:
+
+- `title` is required, cannot be blank, and has at most 100 characters. `description` has at most 1000 characters
+  (an assumption).
+- `status` is one of `TODO`, `IN_PROGRESS`, `DONE`. Any other value returns 400 listing the allowed values.
+- `dueDate` (ISO `yyyy-MM-dd`) cannot be in the past. It is optional, because the requirements don't say it is
+  required.
+- `id`, `createdDate` and the initial `status` are set by the server. A client can't supply them on create, and
+  `createdDate` can never change.
+- `PUT` replaces the editable fields, so `title` and `status` are required. A due date can't be *moved* into the
+  past, but an overdue task can be updated (for example, marked `DONE`) while keeping its existing due date.
+- Lists are sorted by `id`. There is no pagination; see the trade-offs below.
+
+Design decisions and trade-offs:
+
+- **Separate `CreateTaskRequest` and `UpdateTaskRequest`.** Their rules differ. Create has no `status`, because new
+  tasks start as `TODO`, and its past-date check is static (`@FutureOrPresent`). Update requires `status`, and its
+  past-date check depends on the stored value, so it lives in `TaskService` and raises `FieldValidationException`,
+  which returns the same 400 field-error shape.
+- **`LocalDate`** for both dates, because the requirements don't mention a time of day. One injected `Clock` is used
+  both by the service and by Bean Validation (`@FutureOrPresent`), so "today" is consistent and can be fixed in
+  tests.
+- **Enum stored as `STRING`**, so reordering enum constants can't corrupt existing data.
+- **No pagination.** It keeps the API simple for this exercise. With real data volumes, the list endpoint should take
+  a `Pageable`.
+- **`PUT` rather than `PATCH`.** Full replacement is simpler to validate and explain. `PATCH` could be added if
+  partial updates are needed.
