@@ -114,7 +114,8 @@ class TaskControllerTest {
                                 {"title": "Task", "dueDate": "07/10/2026"}
                                 """))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.errors[0].field").value("dueDate"));
+                .andExpect(jsonPath("$.errors[0].field").value("dueDate"))
+                .andExpect(jsonPath("$.errors[0].message").value("must be a date in the format yyyy-MM-dd"));
     }
 
     @Test
@@ -129,6 +130,28 @@ class TaskControllerTest {
         when(taskService.findById(99L)).thenThrow(new ResourceNotFoundException("Task 99 not found"));
 
         mockMvc.perform(get("/api/tasks/99"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.detail").value("Task 99 not found"));
+    }
+
+    @Test
+    void getWithNonNumericIdReturns400() throws Exception {
+        mockMvc.perform(get("/api/tasks/abc"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("id"))
+                .andExpect(jsonPath("$.errors[0].message").value("must be a number"));
+    }
+
+    @Test
+    void updateUnknownTaskReturns404() throws Exception {
+        when(taskService.update(eq(99L), any(UpdateTaskRequest.class)))
+                .thenThrow(new ResourceNotFoundException("Task 99 not found"));
+
+        mockMvc.perform(put("/api/tasks/99")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"title": "Task", "status": "DONE"}
+                                """))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.detail").value("Task 99 not found"));
     }

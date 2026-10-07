@@ -1,5 +1,6 @@
 package com.interviewprep.common.exception;
 
+import java.time.LocalDate;
 import java.util.Arrays;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -15,6 +16,7 @@ import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.util.ClassUtils;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -95,12 +97,19 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         return problem;
     }
 
+    /** Client-friendly message for an unconvertible value; never exposes Java type names. */
     private static String invalidValueMessage(Class<?> targetType) {
-        if (targetType != null && targetType.isEnum()) {
+        if (targetType == null) {
+            return "has an invalid value";
+        }
+        if (targetType.isEnum()) {
             return "must be one of " + Arrays.toString(targetType.getEnumConstants());
         }
-        if (targetType != null) {
-            return "must be a valid " + targetType.getSimpleName();
+        if (LocalDate.class.equals(targetType)) {
+            return "must be a date in the format yyyy-MM-dd";
+        }
+        if (Number.class.isAssignableFrom(ClassUtils.resolvePrimitiveIfNecessary(targetType))) {
+            return "must be a number";
         }
         return "has an invalid value";
     }
