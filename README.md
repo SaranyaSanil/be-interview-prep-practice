@@ -42,7 +42,9 @@ Code is organized **by feature** and layered **Controller → Service → Reposi
 ```
 src/main/java/com/interviewprep
 ├── InterviewPrepApplication.java
-├── common/exception/          GlobalExceptionHandler, ResourceNotFoundException
+├── common/config/             ClockConfig (shared Clock)
+├── common/exception/          GlobalExceptionHandler and shared exceptions
+├── common/security/           SecurityConfig, JWT properties, JSON 401/403 handler
 └── <feature>/                 one package per question (added per question)
     ├── <Feature>Controller    HTTP mapping, input validation, status codes
     ├── <Feature>Service       business rules, transactions, DTO mapping
@@ -227,7 +229,8 @@ Design decisions and trade-offs:
 - **Redirects use 302, not 301.** Browsers cache 301s and skip the server, so repeat visits wouldn't be counted.
   `Cache-Control: no-store` stops caches in between from storing the redirect.
 - **The redirect route only matches `/{code:[A-Za-z0-9]{1,8}}`.** It can't clash with `/api/**`, and invalid
-  codes return 404 without reaching the service.
+  codes never reach the service. Since Q3, an anonymous request to an invalid code gets 401 rather than 404 (see
+  "Deny by default" in Q3).
 - **URL validation:**
   - Only absolute `http`/`https` URLs of at most 2048 printable ASCII characters (no spaces) are accepted.
     Non-ASCII characters must be percent-encoded, because a `Location` header must be ASCII.
@@ -294,12 +297,19 @@ Design decisions and trade-offs:
     admin endpoint.
   - Spring Security rejects these requests in its filters, before they reach a controller, so a custom entry point
     and access-denied handler write the JSON.
-  - A failed login is also a 401. It always says "Invalid email or password", so it doesn't reveal which emails are
-    registered.
+  - A failed login is also a 401. It always says "Invalid email or password", so login doesn't reveal which emails
+    are registered. Registration does reveal it, because a duplicate email has to return 409. Rate limiting would be
+    the real defence against enumeration, and it's out of scope here.
 - **Deny by default.** Only explicitly listed paths are public: `/api/auth/**`, plus the Q1 and Q2 endpoints, whose
   requirements didn't ask for authentication. Everything else needs a token. As a result, an anonymous request to an
   unknown path (for example `/abc-123`, which isn't a valid short code) gets 401 rather than 404. This is standard
   Spring Security behaviour and doesn't reveal which endpoints exist.
+  - Admin rules apply to **every** HTTP method on `/api/users`. A GET-only rule would let a USER reach the handler
+    with `HEAD`.
+  - Public endpoints ignore any `Authorization` header. A client that sends its expired token on every request can
+    still log in again and use the Q1/Q2 endpoints.
+  - Public paths are matched on the path only, so short links with query strings (`/abc1234?utm_source=x`) stay
+    public.
 - **No hard-coded secrets.**
   - The signing key comes only from the `JWT_SECRET` environment variable. If it is missing or shorter than 256 bits,
     the app refuses to start.
@@ -308,5 +318,10 @@ Design decisions and trade-offs:
   - Passwords, hashes and tokens are never logged, and the request records hide the password in `toString()`.
 - **Emails are case-insensitive.** They are stored trimmed and lower-cased. A unique constraint also stops two
   simultaneous registrations of the same address, and the second one gets 409.
+- **`GET /api/users` isn't paginated.** This keeps the admin endpoint simple for the exercise. With a real user
+  base, it should take a `Pageable` with a maximum page size.
+- **A role change takes effect when the token expires.** The role is read from the token, so a demoted or deleted
+  user keeps their old access for up to 15 minutes.
 - **Not included (not required):** refresh tokens, logout or revocation lists, account lockout, rate limiting on
-  login, password reset and email verification.
+  login, password reset, email verification and CORS. CORS is only needed if a browser client is served from
+  another origin.
