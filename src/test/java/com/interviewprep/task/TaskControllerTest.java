@@ -13,14 +13,17 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import java.time.LocalDate;
 
+import com.interviewprep.common.config.ClockConfig;
 import com.interviewprep.common.exception.FieldValidationException;
 import com.interviewprep.common.exception.ResourceNotFoundException;
+import com.interviewprep.common.security.SecurityConfig;
 import com.interviewprep.task.dto.CreateTaskRequest;
 import com.interviewprep.task.dto.TaskResponse;
 import com.interviewprep.task.dto.UpdateTaskRequest;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -28,6 +31,7 @@ import org.springframework.test.web.servlet.MockMvc;
 /**
  * Web-layer tests: HTTP mapping, Bean Validation and error translation. The service is mocked.
  */
+@Import({SecurityConfig.class, ClockConfig.class})
 @WebMvcTest(TaskController.class)
 class TaskControllerTest {
 

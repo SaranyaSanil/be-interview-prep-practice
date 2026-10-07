@@ -1,0 +1,5 @@
+# Test-only overrides. This file is on the test classpath only and is never packaged into the application.
+app:
+  jwt:
+    # Base64 of "test-only-jwt-secret-never-use-outside-tests!" - NOT a real secret.
+    secret: dGVzdC1vbmx5LWp3dC1zZWNyZXQtbmV2ZXItdXNlLW91dHNpZGUtdGVzdHMh
