@@ -8,6 +8,7 @@ import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.head;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -56,6 +57,17 @@ class ProductControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.name").value("Desk Lamp"))
                 .andExpect(jsonPath("$.price").value(19.99));
+    }
+
+    @Test
+    void readsIgnoreStaleTokensAndAllowHead() throws Exception {
+        when(productService.findById(1L)).thenReturn(new ProductResponse(
+                1L, "Desk Lamp", "Home", new BigDecimal("19.99"), 5, new BigDecimal("4.2"), Instant.EPOCH));
+
+        mockMvc.perform(get("/api/products/1").header("Authorization", "Bearer expired-or-garbage"))
+                .andExpect(status().isOk());
+        mockMvc.perform(head("/api/products/1"))
+                .andExpect(status().isOk());
     }
 
     @Test

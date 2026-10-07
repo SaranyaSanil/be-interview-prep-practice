@@ -36,6 +36,9 @@ public class ProductService {
 
     public ProductPageResponse findAll(ProductFilter filter, Pageable pageable) {
         validate(filter);
+        if ((long) pageable.getPageNumber() * pageable.getPageSize() > Integer.MAX_VALUE) {
+            throw new FieldValidationException("page", "is too large");
+        }
         Pageable safePageable = PageRequest.of(
                 pageable.getPageNumber(), pageable.getPageSize(), withIdTieBreaker(validatedSort(pageable.getSort())));
         return ProductPageResponse.from(

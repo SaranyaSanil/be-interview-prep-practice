@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.everyItem;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.is;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -194,6 +195,22 @@ class ProductQueryIntegrationTest {
         mockMvc.perform(get("/api/products").param("maxPrice", "cheap"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.errors[0].message").value("must be a number"));
+    }
+
+    @Test
+    void rejectsPageNumberThatWouldOverflowTheOffset() throws Exception {
+        mockMvc.perform(get("/api/products").param("page", "30000000").param("size", "100"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("page"));
+    }
+
+    @Test
+    void writesStillRejectAnInvalidTokenWhileReadsIgnoreIt() throws Exception {
+        mockMvc.perform(delete("/api/products/1").header("Authorization", "Bearer expired-or-garbage"))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/products").header("Authorization", "Bearer expired-or-garbage"))
+                .andExpect(status().isOk());
+        assertThat(productRepository.count()).isEqualTo(100);
     }
 
     private static long expectedCount(Predicate<Product> predicate) {

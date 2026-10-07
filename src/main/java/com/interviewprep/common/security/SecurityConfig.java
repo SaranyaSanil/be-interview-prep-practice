@@ -57,7 +57,8 @@ public class SecurityConfig {
             path("/api/tasks/**"),
             path("/api/urls/**"),
             path("/{shortCode:[A-Za-z0-9]{1,8}}"),
-            PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.GET, "/api/products/**"));
+            PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.GET, "/api/products/**"),
+            PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.HEAD, "/api/products/**"));
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http, ObjectMapper objectMapper) throws Exception {
@@ -74,7 +75,7 @@ public class SecurityConfig {
                         // No HTTP method on purpose: a GET-only rule would let HEAD /api/users fall through to
                         // authenticated() and run the GET handler for a USER.
                         .requestMatchers(path("/api/users")).hasRole("ADMIN")
-                        // GET product reads are public (above); every other method on products is ADMIN-only.
+                        // GET/HEAD product reads are public (above); every other method on products is ADMIN-only.
                         .requestMatchers(path("/api/products/**")).hasRole("ADMIN")
                         .anyRequest().authenticated())
                 .oauth2ResourceServer(oauth2 -> oauth2
