@@ -3,13 +3,15 @@ package com.interviewprep.shorturl;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.HashSet;
+import java.util.Random;
 import java.util.Set;
 
 import org.junit.jupiter.api.Test;
 
 class ShortCodeGeneratorTest {
 
-    private final ShortCodeGenerator generator = new ShortCodeGenerator();
+    // Seeded so the test is deterministic; production uses SecureRandom.
+    private final ShortCodeGenerator generator = new ShortCodeGenerator(new Random(42));
 
     @Test
     void generatesUrlSafeCodesWithinMaxLength() {
@@ -27,7 +29,6 @@ class ShortCodeGeneratorTest {
         for (int i = 0; i < 1_000; i++) {
             codes.add(generator.generate());
         }
-        // Birthday bound for 1,000 draws from 62^7 values: chance of any duplicate is about 1 in 7 million.
         assertThat(codes).hasSize(1_000);
     }
 }

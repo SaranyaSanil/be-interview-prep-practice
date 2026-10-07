@@ -191,14 +191,16 @@ Design decisions and trade-offs:
   - Random codes can't be guessed in sequence, unlike codes built from the database id.
 - **Codes are unique** because the `short_code` column has a unique constraint. That is the real guarantee. The service
   also checks for an existing code before saving and retries up to 5 times. After 5 collisions, which is practically
-  impossible, the request fails with a 500.
+  impossible, the request fails with a 500. The same happens in the even rarer case where two requests generate the
+  same new code at the same moment: the second insert breaks the unique constraint. The client can simply retry.
 - **Shortening the same URL twice creates a new code each time.** Each link then has its own expiry date and visit
   stats, which is useful when one URL is shared in different places. It also avoids two problems with reusing a code:
   deciding which link wins when expiry dates differ, and two identical requests racing each other. The cost is some
   duplicate rows. Reusing the code would need a unique index on the long URL and rules for differing expiry dates.
 - **Visit counts stay accurate under concurrency** because each visit runs a single atomic
   `UPDATE ... SET visit_count = visit_count + 1`. The database locks the row for that update.
-  - A read, add one, save approach loses visits. In the concurrency test it counted only 77 of 500.
+  - A read, add one, save approach loses a large share of visits under concurrent load, and the concurrency test
+    catches that.
   - Optimistic locking (`@Version`) would fail and retry constantly on a popular link.
   - A pessimistic lock makes every request wait in line.
   - An in-memory counter is lost on restart and doesn't work across several servers.
@@ -207,6 +209,8 @@ Design decisions and trade-offs:
   - A past expiry date is rejected with 400.
   - Every redirect checks expiry.
   - Visits to an expired link aren't counted.
+  - `HEAD` requests to a short URL are counted as visits too, because Spring serves `HEAD` through the `GET`
+    handler. Excluding link checkers and bots is out of scope.
   - Stats stay available after expiry, because they describe past activity.
 - **Status codes:** an unknown code returns 404. An expired code returns **410 Gone**, which tells the client the
   link existed but is permanently unavailable. That is clearer than a 404.
@@ -215,7 +219,8 @@ Design decisions and trade-offs:
 - **The redirect route only matches `/{code:[A-Za-z0-9]{1,8}}`.** It can't clash with `/api/**`, and invalid
   codes return 404 without reaching the service.
 - **URL validation:**
-  - Only absolute `http`/`https` URLs of at most 2048 characters, with no whitespace, are accepted.
+  - Only absolute `http`/`https` URLs of at most 2048 printable ASCII characters (no spaces) are accepted.
+    Non-ASCII characters must be percent-encoded, because a `Location` header must be ASCII.
   - This rejects `javascript:`, `data:` and `ftp:` URLs, so the redirect can't be used for script injection.
   - It also rejects line breaks, so a URL can't inject extra HTTP headers.
 - **The short URL is built from the incoming request's base address.** Behind a reverse proxy, Spring's forwarded-header

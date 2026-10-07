@@ -1,6 +1,7 @@
 package com.interviewprep.shorturl;
 
 import java.security.SecureRandom;
+import java.util.Random;
 
 import org.springframework.stereotype.Component;
 
@@ -15,7 +16,16 @@ public class ShortCodeGenerator {
     static final int CODE_LENGTH = 7;
     private static final String ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
 
-    private final SecureRandom random = new SecureRandom();
+    private final Random random;
+
+    public ShortCodeGenerator() {
+        this(new SecureRandom());
+    }
+
+    /** For tests: a seeded {@link Random} makes the generated sequence reproducible. */
+    ShortCodeGenerator(Random random) {
+        this.random = random;
+    }
 
     public String generate() {
         StringBuilder code = new StringBuilder(CODE_LENGTH);

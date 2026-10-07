@@ -3,6 +3,7 @@ package com.interviewprep.shorturl;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.temporal.ChronoUnit;
 
 import com.interviewprep.common.exception.ResourceGoneException;
 import com.interviewprep.common.exception.ResourceNotFoundException;
@@ -36,7 +37,9 @@ public class ShortUrlService {
      */
     @Transactional
     public ShortUrlResponse create(CreateShortUrlRequest request, String baseUrl) {
-        ShortUrl shortUrl = new ShortUrl(generateUniqueCode(), request.url(), request.expiryDate(), Instant.now(clock));
+        // Truncated to the database's microsecond precision so the create response matches later stats responses.
+        Instant createdAt = Instant.now(clock).truncatedTo(ChronoUnit.MICROS);
+        ShortUrl shortUrl = new ShortUrl(generateUniqueCode(), request.url(), request.expiryDate(), createdAt);
         return ShortUrlResponse.from(shortUrlRepository.save(shortUrl), baseUrl);
     }
 
@@ -63,7 +66,8 @@ public class ShortUrlService {
 
     /**
      * Collisions are astronomically unlikely, so a few retries are enough. The unique constraint on
-     * {@code short_code} is the real guarantee if two requests race for the same new code.
+     * {@code short_code} is the real guarantee: if two requests race for the same new code, the second insert fails
+     * (500) and the client can retry. Retrying inside this transaction is not possible after a constraint violation.
      */
     private String generateUniqueCode() {
         for (int attempt = 0; attempt < MAX_CODE_ATTEMPTS; attempt++) {
