@@ -74,6 +74,8 @@ public class SecurityConfig {
                         // No HTTP method on purpose: a GET-only rule would let HEAD /api/users fall through to
                         // authenticated() and run the GET handler for a USER.
                         .requestMatchers(path("/api/users")).hasRole("ADMIN")
+                        // GET product reads are public (above); every other method on products is ADMIN-only.
+                        .requestMatchers(path("/api/products/**")).hasRole("ADMIN")
                         .anyRequest().authenticated())
                 .oauth2ResourceServer(oauth2 -> oauth2
                         .bearerTokenResolver(ignoreTokensOnPublicEndpoints())
