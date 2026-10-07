@@ -1,0 +1,12 @@
+spring:
+  application:
+    name: be-interview-prep
+  datasource:
+    url: jdbc:h2:mem:interviewdb;DB_CLOSE_DELAY=-1
+    username: sa
+    password:
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    # Keep lazy loading inside the service/transaction boundary, not the web layer.
+    open-in-view: false
