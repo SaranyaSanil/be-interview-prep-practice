@@ -39,6 +39,13 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         return problem;
     }
 
+    @ExceptionHandler(ResourceGoneException.class)
+    public ProblemDetail handleGone(ResourceGoneException ex) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.GONE, ex.getMessage());
+        problem.setTitle("Resource no longer available");
+        return problem;
+    }
+
     @ExceptionHandler(FieldValidationException.class)
     public ProblemDetail handleFieldValidation(FieldValidationException ex) {
         return validationProblem(List.of(new FieldErrorDetail(ex.getField(), ex.getMessage())));
