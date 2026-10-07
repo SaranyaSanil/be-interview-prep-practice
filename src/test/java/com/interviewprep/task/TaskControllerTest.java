@@ -95,8 +95,8 @@ class TaskControllerTest {
     }
 
     @Test
-    void createRejectsUnknownStatus() throws Exception {
-        mockMvc.perform(post("/api/tasks")
+    void updateRejectsUnknownStatus() throws Exception {
+        mockMvc.perform(put("/api/tasks/1")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"title": "Task", "status": "BLOCKED"}

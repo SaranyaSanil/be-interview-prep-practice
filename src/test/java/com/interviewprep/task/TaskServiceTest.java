@@ -42,11 +42,11 @@ class TaskServiceTest {
     }
 
     @Test
-    void createSetsCreatedDateToTodayAndDefaultsStatusToTodo() {
+    void createSetsCreatedDateToTodayAndStatusToTodo() {
         when(taskRepository.save(any(Task.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         TaskResponse response = taskService.create(
-                new CreateTaskRequest("Write tests", null, null, TODAY.plusDays(3)));
+                new CreateTaskRequest("Write tests", null, TODAY.plusDays(3)));
 
         assertThat(response.createdDate()).isEqualTo(TODAY);
         assertThat(response.status()).isEqualTo(TaskStatus.TODO);

@@ -2,6 +2,7 @@ package com.interviewprep.task;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.hasSize;
+import static org.hamcrest.Matchers.not;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -58,7 +59,7 @@ class TaskApiIntegrationTest {
 
     @Test
     void createGetUpdateAndDeleteTask() throws Exception {
-        long id = createTask("Prepare demo", "TODO");
+        long id = createTask("Prepare demo");
 
         mockMvc.perform(get("/api/tasks/{id}", id))
                 .andExpect(status().isOk())
@@ -88,9 +89,9 @@ class TaskApiIntegrationTest {
 
     @Test
     void listFiltersByStatus() throws Exception {
-        createTask("Task A", "TODO");
-        createTask("Task B", "DONE");
-        createTask("Task C", "DONE");
+        createTask("Task A");
+        changeStatus(createTask("Task B"), "Task B", "DONE");
+        changeStatus(createTask("Task C"), "Task C", "DONE");
 
         mockMvc.perform(get("/api/tasks"))
                 .andExpect(status().isOk())
@@ -104,16 +105,16 @@ class TaskApiIntegrationTest {
     }
 
     @Test
-    void clientCannotSetCreatedDate() throws Exception {
-        String body = mockMvc.perform(post("/api/tasks")
+    void clientCannotSetServerManagedFieldsOnCreate() throws Exception {
+        mockMvc.perform(post("/api/tasks")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"title": "Sneaky", "createdDate": "1999-01-01"}
+                                {"id": 999, "title": "Sneaky", "status": "DONE", "createdDate": "1999-01-01"}
                                 """))
                 .andExpect(status().isCreated())
-                .andReturn().getResponse().getContentAsString();
-
-        assertThat((String) JsonPath.read(body, "$.createdDate")).isEqualTo(TODAY.toString());
+                .andExpect(jsonPath("$.id").value(not(999)))
+                .andExpect(jsonPath("$.status").value("TODO"))
+                .andExpect(jsonPath("$.createdDate").value(TODAY.toString()));
     }
 
     @Test
@@ -133,14 +134,23 @@ class TaskApiIntegrationTest {
                 .andExpect(status().isNotFound());
     }
 
-    private long createTask(String title, String status) throws Exception {
+    private long createTask(String title) throws Exception {
         String body = mockMvc.perform(post("/api/tasks")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"title": "%s", "dueDate": "%s"}
+                                """.formatted(title, FUTURE)))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        return ((Number) JsonPath.read(body, "$.id")).longValue();
+    }
+
+    private void changeStatus(long id, String title, String status) throws Exception {
+        mockMvc.perform(put("/api/tasks/{id}", id)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"title": "%s", "status": "%s", "dueDate": "%s"}
                                 """.formatted(title, status, FUTURE)))
-                .andExpect(status().isCreated())
-                .andReturn().getResponse().getContentAsString();
-        return ((Number) JsonPath.read(body, "$.id")).longValue();
+                .andExpect(status().isOk());
     }
 }
