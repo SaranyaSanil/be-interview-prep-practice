@@ -10,6 +10,7 @@ one set of conventions, and each question is delivered as a separate feature bra
 | Language    | Java 21                                             |
 | Framework   | Spring Boot 3.5.x (Spring Web, Spring Data JPA)     |
 | Validation  | Jakarta Bean Validation (Hibernate Validator)       |
+| Security    | Spring Security, stateless JWT (HS256), BCrypt      |
 | Database    | H2 in-memory (local development and tests)          |
 | Build       | Maven, via the Maven Wrapper                        |
 | Testing     | JUnit 5, Mockito, AssertJ, MockMvc                  |
@@ -20,9 +21,18 @@ You don't need to install Maven globally because the wrapper downloads it. On Wi
 `./mvnw`.
 
 ```bash
-./mvnw clean verify          # compile and run all tests
+./mvnw clean verify          # compile and run all tests (uses a test-only JWT key, no setup needed)
 ./mvnw test                  # run tests only
-./mvnw spring-boot:run       # start the app on http://localhost:8080
+```
+
+Running the app requires a JWT signing key, which is supplied through an environment variable and never committed.
+Admin credentials are optional:
+
+```bash
+export JWT_SECRET="$(openssl rand -base64 32)"   # required: Base64, at least 256 bits
+export ADMIN_EMAIL=admin@example.com             # optional: creates the first ADMIN at startup
+export ADMIN_PASSWORD='choose-a-strong-password' # optional
+./mvnw spring-boot:run                           # start the app on http://localhost:8080
 ```
 
 ## Architecture
@@ -82,7 +92,7 @@ For each question:
 |----------|---------|--------|-------------|
 | Q1       | [Task Manager API](#q1--task-manager-api) | `feature/q1-task-api` | Implemented |
 | Q2       | [URL Shortener](#q2--url-shortener) | `feature/q2-url-shortener` | Implemented |
-| Q3       | TBD     | TBD    | Not started |
+| Q3       | [Authentication & Roles](#q3--authentication--roles) | `feature/q3-auth-roles` | Implemented |
 | Q4       | TBD     | TBD    | Not started |
 | Q5       | TBD     | TBD    | Not started |
 
@@ -226,3 +236,77 @@ Design decisions and trade-offs:
 - **The short URL is built from the incoming request's base address.** Behind a reverse proxy, Spring's forwarded-header
   support (`server.forward-headers-strategy`) or a configured base URL would be needed.
 - **Not included:** code deletion, custom aliases, per-visit analytics and rate limiting.
+
+## Q3 — Authentication & Roles
+
+Packages `com.interviewprep.auth` (register, login, tokens), `com.interviewprep.user` (accounts and profiles) and
+`com.interviewprep.common.security` (application-wide security configuration).
+
+| Method | Path                 | Access          | Success                             | Errors                  |
+|--------|----------------------|-----------------|-------------------------------------|-------------------------|
+| `POST` | `/api/auth/register` | public          | 201 `{id, email, role, createdAt}`  | 400, 409 duplicate email |
+| `POST` | `/api/auth/login`    | public          | 200 `{accessToken, tokenType, expiresIn}` | 400, 401          |
+| `GET`  | `/api/users/me`      | any valid token | 200 the caller's own profile        | 401                     |
+| `GET`  | `/api/users`         | ADMIN only      | 200 all users                       | 401, 403                |
+
+Example:
+
+```bash
+curl -X POST localhost:8080/api/auth/register -H 'Content-Type: application/json'      -d '{"email":"alice@example.com","password":"correct-horse-battery"}'
+curl -X POST localhost:8080/api/auth/login -H 'Content-Type: application/json'      -d '{"email":"alice@example.com","password":"correct-horse-battery"}'
+# {"accessToken":"eyJhbGciOiJIUzI1NiJ9...","tokenType":"Bearer","expiresIn":900}
+curl localhost:8080/api/users/me -H "Authorization: Bearer <accessToken>"
+```
+
+Design decisions and trade-offs:
+
+- **Stateless JWT bearer tokens.** Web and mobile clients both send `Authorization: Bearer <token>` on every request.
+  The server keeps no sessions or token store: the token is signed with HMAC-SHA256 and carries the user id
+  (`sub`), the role (`roles`) and the expiry (`exp`). Any instance with the same key can verify it.
+  - It's built with Spring Security's own JWT support (`spring-boot-starter-oauth2-resource-server`, Nimbus). There's
+    no hand-written token filter or extra JWT library. Despite the name, no OAuth2 server or identity provider is
+    involved.
+  - HS256 (one shared secret) because the same service issues and verifies tokens. RS256 would only pay off if other
+    services had to verify tokens.
+  - Sessions, CSRF protection, form login and HTTP Basic are all disabled. CSRF only matters when browsers send
+    cookies automatically, and this API uses none.
+- **15-minute expiry.** At login, `exp` is set to issue time plus 15 minutes (`app.jwt.expiry`), using the shared
+  `Clock`. Every request checks the signature and `exp`, with **zero clock skew**, so a token is accepted up to
+  exactly 15 minutes and rejected one second later (`TokenExpiryTest`).
+  - The login response includes `expiresIn: 900`, so clients know when to log in again.
+  - There are no refresh tokens, so a token can't be revoked early. The short lifetime limits the risk, and logging
+    out means the client discards the token.
+- **Passwords are hashed with BCrypt** through Spring Security's `PasswordEncoder` and never stored or returned in
+  plain text. Passwords must be 8–72 characters and at most 72 bytes, because BCrypt ignores anything after 72 bytes.
+  Longer passwords are rejected rather than silently cut short.
+- **Roles.** Registration always creates a `USER`. The request has no `role` field, so nobody can make themselves
+  admin. The first `ADMIN` comes from the optional `ADMIN_EMAIL`/`ADMIN_PASSWORD` environment variables at startup;
+  it is never hard-coded and never overwrites an existing account.
+  - At login, the role goes into the token's `roles` claim and is mapped to the Spring authority `ROLE_USER` or
+    `ROLE_ADMIN`.
+  - All access rules are declared in one place, `SecurityConfig`. `GET /api/users` is `hasRole("ADMIN")`, and
+    `/api/users/me` only needs a valid token.
+  - `/me` reads the user id from the token, so a user can only ever see their own profile.
+- **401 vs 403, always JSON (`ProblemDetail`).**
+  - **401 Unauthorized:** the server doesn't know who you are. This covers no token and a malformed, tampered,
+    expired or foreign-key token. The response includes `WWW-Authenticate: Bearer`.
+  - **403 Forbidden:** the server knows who you are, but your role isn't allowed, for example a USER calling the
+    admin endpoint.
+  - Spring Security rejects these requests in its filters, before they reach a controller, so a custom entry point
+    and access-denied handler write the JSON.
+  - A failed login is also a 401. It always says "Invalid email or password", so it doesn't reveal which emails are
+    registered.
+- **Deny by default.** Only explicitly listed paths are public: `/api/auth/**`, plus the Q1 and Q2 endpoints, whose
+  requirements didn't ask for authentication. Everything else needs a token. As a result, an anonymous request to an
+  unknown path (for example `/abc-123`, which isn't a valid short code) gets 401 rather than 404. This is standard
+  Spring Security behaviour and doesn't reveal which endpoints exist.
+- **No hard-coded secrets.**
+  - The signing key comes only from the `JWT_SECRET` environment variable. If it is missing or shorter than 256 bits,
+    the app refuses to start.
+  - Tests use a clearly labelled test-only key in `src/test/resources/config/application.yml`, which is never
+    packaged into the jar.
+  - Passwords, hashes and tokens are never logged, and the request records hide the password in `toString()`.
+- **Emails are case-insensitive.** They are stored trimmed and lower-cased. A unique constraint also stops two
+  simultaneous registrations of the same address, and the second one gets 409.
+- **Not included (not required):** refresh tokens, logout or revocation lists, account lockout, rate limiting on
+  login, password reset and email verification.
