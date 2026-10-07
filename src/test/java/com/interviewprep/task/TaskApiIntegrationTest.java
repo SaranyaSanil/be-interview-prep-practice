@@ -9,7 +9,9 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.time.Clock;
 import java.time.LocalDate;
+import java.time.ZoneOffset;
 
 import com.jayway.jsonpath.JsonPath;
 import org.junit.jupiter.api.BeforeEach;
@@ -17,17 +19,31 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Primary;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
 /**
- * End-to-end through Controller → Service → Repository → H2.
+ * End-to-end through Controller → Service → Repository → H2, with a fixed clock so dates are deterministic.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
 class TaskApiIntegrationTest {
 
-    private static final LocalDate FUTURE = LocalDate.now().plusYears(1);
+    private static final LocalDate TODAY = LocalDate.of(2030, 1, 15);
+    private static final LocalDate FUTURE = TODAY.plusDays(30);
+
+    @TestConfiguration
+    static class FixedClockConfig {
+
+        @Bean
+        @Primary
+        Clock fixedClock() {
+            return Clock.fixed(TODAY.atStartOfDay().toInstant(ZoneOffset.UTC), ZoneOffset.UTC);
+        }
+    }
 
     @Autowired
     private MockMvc mockMvc;
@@ -49,7 +65,7 @@ class TaskApiIntegrationTest {
                 .andExpect(jsonPath("$.title").value("Prepare demo"))
                 .andExpect(jsonPath("$.status").value("TODO"))
                 .andExpect(jsonPath("$.dueDate").value(FUTURE.toString()))
-                .andExpect(jsonPath("$.createdDate").value(LocalDate.now().toString()));
+                .andExpect(jsonPath("$.createdDate").value(TODAY.toString()));
 
         mockMvc.perform(put("/api/tasks/{id}", id)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -60,7 +76,7 @@ class TaskApiIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.title").value("Prepare final demo"))
                 .andExpect(jsonPath("$.status").value("IN_PROGRESS"))
-                .andExpect(jsonPath("$.createdDate").value(LocalDate.now().toString()));
+                .andExpect(jsonPath("$.createdDate").value(TODAY.toString()));
 
         mockMvc.perform(delete("/api/tasks/{id}", id))
                 .andExpect(status().isNoContent());
@@ -97,7 +113,18 @@ class TaskApiIntegrationTest {
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
 
-        assertThat((String) JsonPath.read(body, "$.createdDate")).isEqualTo(LocalDate.now().toString());
+        assertThat((String) JsonPath.read(body, "$.createdDate")).isEqualTo(TODAY.toString());
+    }
+
+    @Test
+    void createRejectsDueDateBeforeTodayAccordingToApplicationClock() throws Exception {
+        mockMvc.perform(post("/api/tasks")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"title": "Late", "dueDate": "%s"}
+                                """.formatted(TODAY.minusDays(1))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("dueDate"));
     }
 
     @Test
