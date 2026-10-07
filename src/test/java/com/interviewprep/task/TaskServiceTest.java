@@ -65,6 +65,16 @@ class TaskServiceTest {
     }
 
     @Test
+    void findAllReturnsAllTasksWhenNoStatusGiven() {
+        when(taskRepository.findAll(Sort.by("id"))).thenReturn(List.of(
+                new Task("A", null, TaskStatus.TODO, null, TODAY),
+                new Task("B", null, TaskStatus.DONE, null, TODAY)));
+
+        assertThat(taskService.findAll(null)).extracting(TaskResponse::title).containsExactly("A", "B");
+        verify(taskRepository, never()).findByStatus(any(), any());
+    }
+
+    @Test
     void findByIdThrowsWhenTaskDoesNotExist() {
         when(taskRepository.findById(99L)).thenReturn(Optional.empty());
 
@@ -84,6 +94,20 @@ class TaskServiceTest {
                 .isInstanceOf(FieldValidationException.class)
                 .extracting("field").isEqualTo("dueDate");
         assertThat(task.getDueDate()).isEqualTo(TODAY.plusDays(1));
+    }
+
+    @Test
+    void updateAllowsMovingDueDateToTodayOrLater() {
+        Task task = new Task("Task", null, TaskStatus.TODO, TODAY.plusDays(1), TODAY);
+        when(taskRepository.findById(1L)).thenReturn(Optional.of(task));
+
+        TaskResponse response = taskService.update(
+                1L, new UpdateTaskRequest("Renamed", "Details", TaskStatus.IN_PROGRESS, TODAY));
+
+        assertThat(response.title()).isEqualTo("Renamed");
+        assertThat(response.description()).isEqualTo("Details");
+        assertThat(response.status()).isEqualTo(TaskStatus.IN_PROGRESS);
+        assertThat(response.dueDate()).isEqualTo(TODAY);
     }
 
     @Test
