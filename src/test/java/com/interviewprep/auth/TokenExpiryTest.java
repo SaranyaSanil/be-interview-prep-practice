@@ -51,6 +51,13 @@ class TokenExpiryTest {
                 .hasMessageContaining("at least 256 bits");
     }
 
+    @Test
+    void unsetSecretPlaceholderIsRejectedWithAClearMessage() {
+        assertThatThrownBy(() -> new JwtProperties("${JWT_SECRET}", Duration.ofMinutes(15)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("JWT_SECRET environment variable");
+    }
+
     private String issueTokenAt(Instant now) {
         AppUser user = new AppUser("user@example.com", "hash", Role.USER, now);
         ReflectionTestUtils.setField(user, "id", 1L);

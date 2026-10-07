@@ -20,10 +20,21 @@ import org.springframework.validation.annotation.Validated;
 public record JwtProperties(@NotBlank String secret, @NotNull Duration expiry) {
 
     private static final int MIN_KEY_BYTES = 32;
+    private static final String INVALID_SECRET = "app.jwt.secret must be set via the JWT_SECRET environment variable "
+            + "to a Base64-encoded key of at least 256 bits (e.g. `openssl rand -base64 32`)";
 
+    /** Also catches an unset JWT_SECRET, which arrives here as the literal, non-Base64 text "${JWT_SECRET}". */
     public JwtProperties {
-        if (secret != null && !secret.isBlank() && Base64.getDecoder().decode(secret).length < MIN_KEY_BYTES) {
-            throw new IllegalArgumentException("app.jwt.secret must be a Base64-encoded key of at least 256 bits");
+        if (secret != null && !secret.isBlank() && decodedLength(secret) < MIN_KEY_BYTES) {
+            throw new IllegalArgumentException(INVALID_SECRET);
+        }
+    }
+
+    private static int decodedLength(String secret) {
+        try {
+            return Base64.getDecoder().decode(secret).length;
+        } catch (IllegalArgumentException notBase64) {
+            return 0;
         }
     }
 
