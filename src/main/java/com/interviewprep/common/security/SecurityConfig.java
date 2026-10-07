@@ -8,6 +8,7 @@ import com.nimbusds.jose.jwk.source.ImmutableSecret;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -55,7 +56,9 @@ public class SecurityConfig {
             path("/error"),
             path("/api/tasks/**"),
             path("/api/urls/**"),
-            path("/{shortCode:[A-Za-z0-9]{1,8}}"));
+            path("/{shortCode:[A-Za-z0-9]{1,8}}"),
+            PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.GET, "/api/products/**"),
+            PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.HEAD, "/api/products/**"));
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http, ObjectMapper objectMapper) throws Exception {
@@ -72,6 +75,8 @@ public class SecurityConfig {
                         // No HTTP method on purpose: a GET-only rule would let HEAD /api/users fall through to
                         // authenticated() and run the GET handler for a USER.
                         .requestMatchers(path("/api/users")).hasRole("ADMIN")
+                        // GET/HEAD product reads are public (above); every other method on products is ADMIN-only.
+                        .requestMatchers(path("/api/products/**")).hasRole("ADMIN")
                         .anyRequest().authenticated())
                 .oauth2ResourceServer(oauth2 -> oauth2
                         .bearerTokenResolver(ignoreTokensOnPublicEndpoints())

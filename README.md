@@ -11,6 +11,7 @@ one set of conventions, and each question is delivered as a separate feature bra
 | Framework   | Spring Boot 3.5.x (Spring Web, Spring Data JPA)     |
 | Validation  | Jakarta Bean Validation (Hibernate Validator)       |
 | Security    | Spring Security, stateless JWT (HS256), BCrypt      |
+| Caching     | Spring Cache abstraction with Caffeine (in-memory)  |
 | Database    | H2 in-memory (local development and tests)          |
 | Build       | Maven, via the Maven Wrapper                        |
 | Testing     | JUnit 5, Mockito, AssertJ, MockMvc                  |
@@ -42,7 +43,7 @@ Code is organized **by feature** and layered **Controller → Service → Reposi
 ```
 src/main/java/com/interviewprep
 ├── InterviewPrepApplication.java
-├── common/config/             ClockConfig (shared Clock)
+├── common/config/             ClockConfig (shared Clock), CacheConfig (Caffeine)
 ├── common/exception/          GlobalExceptionHandler and shared exceptions
 ├── common/security/           SecurityConfig, JWT properties, JSON 401/403 handler
 └── <feature>/                 one package per question (added per question)
@@ -95,7 +96,7 @@ For each question:
 | Q1       | [Task Manager API](#q1--task-manager-api) | `feature/q1-task-api` | Implemented |
 | Q2       | [URL Shortener](#q2--url-shortener) | `feature/q2-url-shortener` | Implemented |
 | Q3       | [Authentication & Roles](#q3--authentication--roles) | `feature/q3-auth-roles` | Implemented |
-| Q4       | TBD     | TBD    | Not started |
+| Q4       | [Product Catalog](#q4--product-catalog) | `feature/q4-product-catalog` | Implemented |
 | Q5       | TBD     | TBD    | Not started |
 
 ## PR workflow
@@ -325,3 +326,85 @@ Design decisions and trade-offs:
 - **Not included (not required):** refresh tokens, logout or revocation lists, account lockout, rate limiting on
   login, password reset, email verification and CORS. CORS is only needed if a browser client is served from
   another origin.
+
+## Q4 — Product Catalog
+
+Package `com.interviewprep.product`. 100 products are seeded at startup.
+
+| Method   | Path                  | Access | Success                                   | Errors        |
+|----------|-----------------------|--------|-------------------------------------------|---------------|
+| `GET`    | `/api/products`       | public | 200 page of products (filters, paging, sorting) | 400     |
+| `GET`    | `/api/products/{id}`  | public | 200 product (**cached**)                  | 404           |
+| `PUT`    | `/api/products/{id}`  | ADMIN  | 200 updated product (evicts the cache entry) | 400, 401, 403, 404 |
+| `DELETE` | `/api/products/{id}`  | ADMIN  | 204 (evicts the cache entry)              | 401, 403, 404 |
+
+List example: all filters are optional and can be combined freely.
+
+```
+GET /api/products?category=Home&minPrice=50&maxPrice=200&inStock=true&name=lamp&sort=price,desc&sort=name&page=0&size=20
+```
+
+```json
+{ "products": [ { "id": 78, "name": "Lamp 078", "category": "Home", "price": 195.99, "stock": 15,
+                  "rating": 3.9, "createdAt": "2026-07-21T09:00:00Z" }, ... ],
+  "totalCount": 10, "totalPages": 1, "page": 0, "size": 20 }
+```
+
+Design decisions and trade-offs:
+
+- **Caching:** Spring's cache abstraction (`@Cacheable` / `@CacheEvict`) with an in-memory **Caffeine** cache.
+  - Lookups by id far outnumber changes, the data set is small, and the app runs as one instance. An in-process cache
+    is the simplest thing that works and needs no extra infrastructure.
+  - Redis would only be needed if several instances had to share a cache. Each instance has its own cache, so with
+    multiple instances an update on one instance wouldn't evict the others. That would be the point to move to a
+    shared cache or cross-instance invalidation.
+- **Cache key:** one cache, `products`, keyed by **product id**.
+  - It stores the immutable `ProductResponse` record, never the JPA entity.
+  - List and filter results aren't cached. Their keys would combine every filter and sort option, and any write
+    would have to clear all of them.
+- **Repeated lookups avoid the database.** `findById` is `@Cacheable(key = "#id", sync = true)`.
+  - On a hit, Spring's caching proxy returns the stored value without calling the method, so there's no repository
+    call and no SQL.
+  - The caching advice runs outside the transaction, so a hit doesn't even open one.
+  - `sync = true` means concurrent misses for the same id load it only once.
+  - Unknown ids (404) are not cached.
+- **Invalidation:** `update` and `delete` are `@CacheEvict(key = "#id")`.
+  - They evict rather than write the new value, so the next read always loads the committed row.
+  - The cache manager is wrapped in `TransactionAwareCacheManagerProxy`, so eviction happens **after the commit**.
+    If it happened before, a concurrent read could reload the old row and cache it again.
+  - A rolled-back update evicts nothing.
+  - Eviction runs in the request thread before the PUT or DELETE response is sent. **Once the client has the
+    response, no request will see the old product.**
+- **Proof:** `ProductCacheIntegrationTest` wraps the real `ProductRepository` in a Mockito spy.
+  - Three GETs of the same product call `findById` **once**.
+  - An update or delete forces the next GET back to the database.
+  - The eviction is shown to wait for the commit, and a rollback leaves the cache untouched.
+  - Removing `@Cacheable` or the after-commit proxy makes these tests fail. I checked both.
+- **Pagination and sorting:** Spring Data `Pageable` (`page`, `size`, `sort=field,asc|desc`, repeatable), with a
+  default page size of 20. Larger sizes are **capped at 100** (`spring.data.web.pageable.max-page-size`), and the
+  response's `size` shows the size actually applied.
+  - The response is an explicit `{products, totalCount, totalPages, page, size}` record. Spring's `Page` isn't
+    returned directly because its JSON shape isn't a stable API.
+  - `id` is always added as the last sort key. Without it, rows with equal values (for example the same price) could
+    appear on two pages or none.
+- **Safe sorting:** clients can sort by any product field, `id, name, category, price, stock, rating, createdAt`, and
+  nothing else.
+  - Any other field gets 400, for example `{"field":"sort","message":"must be one of [...]"}`. Without this check,
+    unknown properties would cause a 500, and fields added later would become sortable without anyone deciding so.
+  - `ORDER BY` is built by Spring Data from validated property names, never by joining strings.
+- **Combining filters:** one JPA `Specification` per filter.
+  - `category` matches exactly, ignoring case.
+  - `minPrice` and `maxPrice` are inclusive, and each is optional.
+  - `inStock=true` means stock above zero.
+  - `name` is a case-insensitive "contains" search. `%` and `_` in the search text are matched literally.
+  - An absent filter adds no condition, and `Specification.allOf` combines the rest into a single query.
+  - A negative price or `minPrice` greater than `maxPrice` gets 400.
+- **The seed doesn't duplicate.** `ProductSeeder` (an `ApplicationRunner`) inserts 100 products only when the table is
+  empty, so restarting against a persistent database adds nothing. The values come from formulas, not random data:
+  - 5 categories with 20 products each, and every 7th product out of stock.
+  - Prices from 3.49 to 250.99 and ratings from 1.0 to 5.0.
+  - Tests derive their expected counts from the same formula.
+- **Access:** reads are public. Updates and deletes are ADMIN-only, reusing Q3's JWT roles. There is no create
+  endpoint (not required), because products come from the seed.
+- **Testing:** each Spring test context gets its own in-memory H2 database (`src/test/resources/config/application.yml`),
+  so seeded and modified data can't leak between test classes.

@@ -10,6 +10,11 @@ spring:
       ddl-auto: create-drop
     # Keep lazy loading inside the service/transaction boundary, not the web layer.
     open-in-view: false
+  data:
+    web:
+      pageable:
+        # Larger requested page sizes are capped to this value.
+        max-page-size: 100
 
 app:
   jwt:

@@ -3,3 +3,7 @@ app:
   jwt:
     # Base64 of "test-only-jwt-secret-never-use-outside-tests!" - NOT a real secret.
     secret: dGVzdC1vbmx5LWp3dC1zZWNyZXQtbmV2ZXItdXNlLW91dHNpZGUtdGVzdHMh
+spring:
+  datasource:
+    # A separate in-memory database per Spring test context, so contexts cannot see or drop each other's data.
+    url: jdbc:h2:mem:test-${random.uuid};DB_CLOSE_DELAY=-1
