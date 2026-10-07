@@ -17,3 +17,7 @@ app:
     # Supplied via environment variable only; never commit a real value.
     secret: ${JWT_SECRET}
     expiry: 15m
+  admin:
+    # Optional. When both are set, an ADMIN account is created at startup if it does not exist yet.
+    email: ${ADMIN_EMAIL:}
+    password: ${ADMIN_PASSWORD:}
