@@ -59,7 +59,8 @@ class ShortUrlControllerTest {
             "example.com",
             "ftp://example.com/file",
             "javascript:alert(1)",
-            "https://exa mple.com"})
+            "https://exa mple.com",
+            "https://example.com/café"})
     void createRejectsInvalidUrls(String url) throws Exception {
         mockMvc.perform(post("/api/urls")
                         .contentType(MediaType.APPLICATION_JSON)

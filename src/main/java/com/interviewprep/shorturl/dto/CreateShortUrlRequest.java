@@ -9,13 +9,15 @@ import jakarta.validation.constraints.Size;
 import org.hibernate.validator.constraints.URL;
 
 /**
- * Only absolute http/https URLs without whitespace are accepted. This rejects schemes such as {@code javascript:}
- * or {@code data:} that would turn the redirect into an injection vector, and CR/LF that could split headers.
+ * Only absolute http/https URLs made of printable ASCII (no spaces) are accepted. This rejects schemes such as
+ * {@code javascript:} or {@code data:} that would turn the redirect into an injection vector, CR/LF that could split
+ * headers, and raw non-ASCII characters that cannot be sent in a {@code Location} header (clients must
+ * percent-encode them, e.g. {@code caf%C3%A9}).
  */
 public record CreateShortUrlRequest(
         @NotBlank
         @Size(max = ShortUrl.ORIGINAL_URL_MAX_LENGTH)
-        @URL(regexp = "(?i)^https?://\\S+$", message = "must be a valid http or https URL")
+        @URL(regexp = "(?i)^https?://[!-~]+$", message = "must be a valid http or https URL")
         String url,
         @FutureOrPresent LocalDate expiryDate) {
 }
