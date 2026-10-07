@@ -10,3 +10,10 @@ spring:
       ddl-auto: create-drop
     # Keep lazy loading inside the service/transaction boundary, not the web layer.
     open-in-view: false
+
+app:
+  jwt:
+    # Required. Base64-encoded HMAC-SHA256 key of at least 256 bits, e.g. `openssl rand -base64 32`.
+    # Supplied via environment variable only; never commit a real value.
+    secret: ${JWT_SECRET}
+    expiry: 15m

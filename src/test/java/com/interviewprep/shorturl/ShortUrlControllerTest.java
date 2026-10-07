@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -13,8 +14,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import java.time.Instant;
 
+import com.interviewprep.common.config.ClockConfig;
 import com.interviewprep.common.exception.ResourceGoneException;
 import com.interviewprep.common.exception.ResourceNotFoundException;
+import com.interviewprep.common.security.SecurityConfig;
 import com.interviewprep.shorturl.dto.CreateShortUrlRequest;
 import com.interviewprep.shorturl.dto.ShortUrlResponse;
 import org.junit.jupiter.api.Test;
@@ -22,10 +25,12 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
+@Import({SecurityConfig.class, ClockConfig.class})
 @WebMvcTest(ShortUrlController.class)
 class ShortUrlControllerTest {
 
@@ -136,10 +141,16 @@ class ShortUrlControllerTest {
                 .andExpect(jsonPath("$.detail").value("Short URL old1234 has expired"));
     }
 
+    /**
+     * Paths that are not valid short codes are not public routes, so deny-by-default security answers 401 to
+     * anonymous callers; an authenticated caller gets 404. Either way the service is never called.
+     */
     @Test
     void codesThatAreNotUrlSafeOrTooLongNeverReachTheService() throws Exception {
-        mockMvc.perform(get("/abc-123")).andExpect(status().isNotFound());
-        mockMvc.perform(get("/abcdefghi")).andExpect(status().isNotFound());
+        mockMvc.perform(get("/abc-123")).andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/abcdefghi")).andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/abc-123").with(jwt())).andExpect(status().isNotFound());
+        mockMvc.perform(get("/abcdefghi").with(jwt())).andExpect(status().isNotFound());
         verifyNoInteractions(shortUrlService);
     }
 
