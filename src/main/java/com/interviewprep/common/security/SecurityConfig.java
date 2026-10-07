@@ -8,6 +8,7 @@ import com.nimbusds.jose.jwk.source.ImmutableSecret;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -55,7 +56,8 @@ public class SecurityConfig {
             path("/error"),
             path("/api/tasks/**"),
             path("/api/urls/**"),
-            path("/{shortCode:[A-Za-z0-9]{1,8}}"));
+            path("/{shortCode:[A-Za-z0-9]{1,8}}"),
+            PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.GET, "/api/products/**"));
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http, ObjectMapper objectMapper) throws Exception {
